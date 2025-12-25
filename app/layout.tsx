@@ -1,5 +1,5 @@
 import { type Metadata } from 'next'
-import { ClerkProvider } from '@clerk/nextjs' // Removed buttons from here
+import { ClerkProvider } from '@clerk/nextjs'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Toaster } from 'react-hot-toast'
 import './globals.css'
@@ -28,8 +28,6 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-          {/* Header removed from here so it doesn't show everywhere */}
-          
           {children}
           
           <Toaster position="bottom-right" reverseOrder={false} />
