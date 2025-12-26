@@ -8,9 +8,9 @@ import { revalidatePath } from 'next/cache';
 
 // Configure Cloudinary
 cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_URL?.split('@')[1].split('.')[0], // Extract from URL or set manually
-  api_key: process.env.CLOUDINARY_URL?.split('://')[1].split(':')[0],
-  api_secret: process.env.CLOUDINARY_URL?.split(':')[2].split('@')[0],
+  cloud_name: process.env.CLOUDINARY_URL ? process.env.CLOUDINARY_URL.split('@')[1].split('.')[0] : '', 
+  api_key: process.env.CLOUDINARY_URL ? process.env.CLOUDINARY_URL.split('://')[1].split(':')[0] : '',
+  api_secret: process.env.CLOUDINARY_URL ? process.env.CLOUDINARY_URL.split(':')[2].split('@')[0] : '',
 });
 
 export async function addExam(formData: FormData) {
@@ -20,8 +20,15 @@ export async function addExam(formData: FormData) {
   const url = formData.get('url') as string;
   const imageFile = formData.get('image') as File;
 
+  // --- NEW: Extract and Parse Numeric Fields ---
+  // We use Number() or parseFloat() to ensure they are stored as numbers, not strings.
+  // Fallback to defaults (100, 1, 0) if the parse fails.
+  const totalQuestions = parseInt(formData.get('total_questions') as string) || 100;
+  const rightMark = parseFloat(formData.get('right_mark') as string) || 1.0;
+  const wrongMark = parseFloat(formData.get('wrong_mark') as string) || 0.0;
+
   if (!imageFile || !name || !url) {
-    return { success: false, message: 'Missing required fields' };
+    return { success: false, message: 'Missing required fields (Name, URL, or Image)' };
   }
 
   try {
@@ -39,39 +46,54 @@ export async function addExam(formData: FormData) {
       ).end(buffer);
     });
 
-    // 2. Save to Neon DB
+    // 2. Save to Neon DB with NEW Fields
     await db.insert(recentExams).values({
       examName: name,
       type,
       description,
       imageUrl: uploadResult.secure_url,
       url,
+      
+      // Map the parsed numbers to the schema columns
+      totalQuestions: totalQuestions,
+      rightMark: rightMark,
+      wrongMark: wrongMark,
     });
 
     revalidatePath('/');
-    return { success: true, message: 'Exam added successfully!' };
+    return { success: true, message: 'Answer Key published successfully!' };
+
   } catch (error: any) {
-    console.error(error);
-    // Handle unique URL constraint
+    console.error('Add Exam Error:', error);
+    
+    // Handle Postgres Unique Constraint Violation (Duplicate URL)
     if (error.code === '23505') {
-       return { success: false, message: 'This URL already exists. Please use a unique URL.' };
+       return { success: false, message: 'This URL slug already exists. Please choose a unique one.' };
     }
-    return { success: false, message: 'Failed to create exam.' };
+    
+    return { success: false, message: 'Failed to create entry. Please try again.' };
   }
 }
 
 export async function getExams() {
-  return await db.query.recentExams.findMany({
-    orderBy: [desc(recentExams.createdAt)],
-  });
+  try {
+    const data = await db.query.recentExams.findMany({
+      orderBy: [desc(recentExams.createdAt)],
+    });
+    return data;
+  } catch (error) {
+    console.error('Fetch Error:', error);
+    return [];
+  }
 }
 
 export async function deleteExam(id: number) {
   try {
     await db.delete(recentExams).where(eq(recentExams.id, id));
     revalidatePath('/');
-    return { success: true };
+    return { success: true, message: 'Answer Key deleted successfully' }; 
   } catch (e) {
-    return { success: false };
+    console.error('Delete Error:', e);
+    return { success: false, message: 'Failed to delete Answer Key' }; 
   }
 }

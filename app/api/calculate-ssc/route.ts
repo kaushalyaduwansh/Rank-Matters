@@ -1,11 +1,12 @@
 import { db } from "@/db"; 
-import { sscResults } from "@/db/schema";
+import { sscResults, recentExams } from "@/db/schema";
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import * as cheerio from "cheerio";
 
 function getNormalizedUrls(inputUrl: string): string[] {
   const basePattern = /(ViewCandResponse)\d*/i;
-  const baseUrl = inputUrl.replace(basePattern, "ViewCandResponse");
+  const baseUrl = inputUrl.trim().replace(basePattern, "ViewCandResponse");
   return [
     baseUrl,
     baseUrl.replace("ViewCandResponse", "ViewCandResponse2"),
@@ -16,92 +17,141 @@ function getNormalizedUrls(inputUrl: string): string[] {
 
 export async function POST(req: Request) {
   try {
-    const { url } = await req.json();
-    const normalizedUrl = url.trim();
-    const urls = getNormalizedUrls(normalizedUrl);
+    const { url, category, examId } = await req.json();
 
-    // Fetch all 4 subjects in parallel
+    if (!url || !examId) {
+        return NextResponse.json({ error: "Missing URL or Exam ID" }, { status: 400 });
+    }
+
+    // 1. Fetch Exam Settings
+    const examSettings = await db.query.recentExams.findFirst({
+        where: eq(recentExams.id, examId),
+    });
+
+    if (!examSettings) {
+        return NextResponse.json({ error: "Exam settings not found" }, { status: 404 });
+    }
+
+    const POSITIVE_MARK = examSettings.rightMark ?? 2;
+    const NEGATIVE_MARK = examSettings.wrongMark ?? 0.5;
+
+    const urls = getNormalizedUrls(url);
     const pages = await Promise.all(
       urls.map((u: string) => 
         fetch(u, { next: { revalidate: 3600 } }).then((res) => (res.ok ? res.text() : ""))
       )
     );
 
-    let totalCorrect = 0;
-    let totalWrong = 0;
-    let totalUnattempted = 0;
+    let totalCorrect = 0, totalWrong = 0, totalUnattempted = 0;
     const subjectScores: number[] = [];
+    const detailedStats: any[] = [];
 
-    pages.forEach((html: string) => {
+    // --- SCORING LOGIC ---
+    pages.forEach((html: string, index: number) => {
+      const subjectName = ["Reasoning", "GK", "Quant", "English"][index] || `Subject ${index+1}`;
+
       if (!html) {
         subjectScores.push(0);
+        detailedStats.push({ subject: subjectName, right: 0, wrong: 0, unattempted: 0, score: 0 });
         return;
       }
-      const $ = cheerio.load(html);
-      let sCorrect = 0;
-      let sWrong = 0;
 
-      // 1. Calculate Score based on bgcolor
+      const $ = cheerio.load(html);
+      let sCorrect = 0, sWrong = 0, sUnattemptRaw = 0;
+
       $('td[bgcolor]').each((_, el) => {
         const color = $(el).attr('bgcolor')?.toLowerCase();
         if (color === 'green') sCorrect++;
         if (color === 'red') sWrong++;
+        if (color === 'yellow') sUnattemptRaw++;
       });
 
-      // 2. Count Unattempted (Looking for "Not Answered" in tables)
-      $('table.menu-tbl').each((_, table) => {
-        if ($(table).text().includes("Not Answered")) totalUnattempted++;
-      });
-
+      const sRealUnattempted = Math.max(0, sUnattemptRaw - sWrong); 
+      const sectionScore = (sCorrect * POSITIVE_MARK) - (sWrong * NEGATIVE_MARK);
+      
+      subjectScores.push(sectionScore);
       totalCorrect += sCorrect;
       totalWrong += sWrong;
-      // SSC CPO formula: +1 for correct, -0.25 for wrong
-      subjectScores.push((sCorrect * 1) - (sWrong * 0.25));
+      totalUnattempted += sRealUnattempted;
+
+      detailedStats.push({
+          subject: subjectName,
+          right: sCorrect,
+          wrong: sWrong,
+          unattempted: sRealUnattempted,
+          score: sectionScore
+      });
     });
 
-    const totalScore = (totalCorrect * 1) - (totalWrong * 0.25);
+    const totalScore = (totalCorrect * POSITIVE_MARK) - (totalWrong * NEGATIVE_MARK);
 
-    // 3. Extract Metadata from the first page (Base Page)
+    // --- EXTRACTION LOGIC (FIXED) ---
     const $base = cheerio.load(pages[0]);
-    const extractText = (label: string) => 
-      $base(`td:contains("${label}")`).next().text().replace(':', '').trim();
+
+    // Robust extractor that flattens all whitespace (newlines, tabs) into single spaces
+    const extractText = (targetLabels: string[]) => {
+      let foundValue = "";
+
+      // Loop through EVERY 'td' to find the label manually
+      $base('td').each((_, element) => {
+        if (foundValue) return; // Stop if already found
+
+        // Normalize: "Centre \n Name" -> "Centre Name"
+        const cellText = $base(element).text().replace(/\s+/g, ' ').trim(); 
+        
+        // Check if this cell contains any of our target labels (e.g., "Centre Name")
+        if (targetLabels.some(label => cellText.includes(label))) {
+           // If match, grab the NEXT cell
+           foundValue = $base(element).next().text().replace(':', '').trim();
+        }
+      });
+
+      return foundValue;
+    };
+
+    // Extract Centre Name (checking both common variations)
+    const centreName = extractText(["Centre Name", "Venue Name"]);
 
     const finalData = {
-      rollNo: extractText("Roll No."),
-      candidateName: extractText("Candidate Name"),
-      testDate: extractText("Test Date"),
-      testTimeShift: extractText("Test Time"),
-      centreName: extractText("Centre Name"),
-      answerKeyUrl: normalizedUrl,
+      examId: examId,
+      category: category,
+      rollNo: extractText(["Roll No"]),
+      candidateName: extractText(["Candidate Name"]),
+      testDate: extractText(["Test Date"]),
+      testTimeShift: extractText(["Test Time"]),
+      centreName: centreName,
+      answerKeyUrl: url.trim(),
+      
       reasoningScore: subjectScores[0] || 0,
       gkScore: subjectScores[1] || 0,
       quantScore: subjectScores[2] || 0,
       englishScore: subjectScores[3] || 0,
       totalScore: totalScore,
+      sectionDetails: detailedStats 
     };
 
-    // 4. Save to Neon Database (Upsert)
-    // Only attempt to save if we actually found a Roll No
+    // 5. Save to DB
     if (finalData.rollNo) {
       await db.insert(sscResults)
         .values(finalData)
         .onConflictDoUpdate({
-          target: sscResults.rollNo,
+          target: [sscResults.rollNo, sscResults.examId],
           set: finalData
         });
+    } else {
+        return NextResponse.json({ error: "Could not parse Roll Number from URL" }, { status: 422 });
     }
 
-    // 5. Return JSON in the format the UI expects
     return NextResponse.json({ 
       score: totalScore, 
       correct: totalCorrect, 
       wrong: totalWrong, 
       unattempted: totalUnattempted,
-      dbData: finalData // This includes the student name and roll no for the UI
+      dbData: finalData
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("Calculation Error:", error);
-    return NextResponse.json({ error: "Server failed to calculate" }, { status: 500 });
+    return NextResponse.json({ error: error.message || "Server failed to calculate" }, { status: 500 });
   }
 }
