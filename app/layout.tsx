@@ -3,6 +3,7 @@ import { ClerkProvider } from '@clerk/nextjs'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Toaster } from 'react-hot-toast'
 import './globals.css'
+import TopLoaderWrapper from '@/components/top-loader-wrapper' // Import here
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -28,6 +29,9 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+          {/* Add the wrapper here at the top of the body */}
+          <TopLoaderWrapper />
+          
           {children}
           
           <Toaster position="bottom-right" reverseOrder={false} />

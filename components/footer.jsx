@@ -78,9 +78,9 @@ export default async function Footer() {
                  <div className="border-t border-slate-200 pt-8 flex flex-col md:flex-row justify-between items-center text-sm text-slate-400">
                      <p>&copy; 2025 RankMatters. All rights reserved.</p>
                      <div className="flex gap-4 mt-4 md:mt-0">
-                         <Link href="#" className="hover:text-blue-600">Terms</Link>
-                         <Link href="#" className="hover:text-blue-600">Privacy</Link>
-                         <Link href="#" className="hover:text-blue-600">Cookies</Link>
+                         <Link href="/privacy" className="hover:text-blue-600">Terms</Link>
+                         <Link href="/privacy" className="hover:text-blue-600">Privacy</Link>
+                         <Link href="/privacy" className="hover:text-blue-600">Cookies</Link>
                      </div>
                  </div>
              </div>

@@ -53,7 +53,7 @@ export default async function LandingPage() {
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-100">
                         <TrendingUp className="h-5 w-5 text-indigo-600" />
                     </span>
-                    Recent Added Answer Keys
+                    Recently Added Answer Keys
                 </h2>
             </div>
 
@@ -150,63 +150,82 @@ function NavLink({ href, children }: { href: string; children: React.ReactNode }
     )
 }
 
-// --- UPDATED CARD COMPONENT WITH BLURRED BACKGROUND ---
+// --- COMPACT PROFESSIONAL CARD (With Bottom-Left Color Glow) ---
 function ProfessionalCard({ data }: { data: any }) {
     return (
-        <Link href={data.url} className="block h-full">
-            <div className="group relative h-full bg-white rounded-2xl p-5 md:p-6 border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_8px_30px_-4px_rgba(0,0,0,0.08)] hover:-translate-y-1 transition-all duration-300 ease-out overflow-hidden">
+        <Link href={data.url} className="block h-full group">
+            <div className="relative h-full bg-white rounded-xl p-4 border border-slate-100 shadow-[0_2px_8px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_8px_30px_-4px_rgba(0,0,0,0.1)] hover:-translate-y-1 transition-all duration-300 ease-out overflow-hidden flex flex-col justify-between">
                 
-                {/* 1. BLURRED IMAGE BACKGROUND
-                   This creates the "modern vibe" and dynamic color glow based on the exam logo.
-                */}
-                <div className="absolute -bottom-16 -left-16 w-48 h-48 opacity-[0.12] blur-[70px] pointer-events-none group-hover:opacity-[0.20] transition-opacity duration-500 will-change-transform z-0">
+                {/* --- BACKGROUND GLOW EFFECTS --- */}
+                
+                {/* 1. EXISTING: Bottom-Right Grayscale-to-Color Glow on Hover */}
+                <div className="absolute -bottom-12 -right-12 w-32 h-32 opacity-[0.08] blur-[60px] pointer-events-none group-hover:opacity-[0.15] transition-opacity duration-500 will-change-transform z-0">
                      <img 
                         src={data.imageUrl} 
                         alt="" 
+                        className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" 
+                        aria-hidden="true"
+                     />
+                </div>
+
+                {/* 2. NEW: Bottom-Left Permanent Colored Glow ("Sick Look") */}
+                <div className="absolute -bottom-16 -left-16 w-40 h-40 opacity-[0.10] blur-[70px] pointer-events-none group-hover:opacity-[0.18] transition-opacity duration-500 will-change-transform z-0">
+                     <img 
+                        src={data.imageUrl} 
+                        alt="" 
+                        // This one is always colored (no grayscale class)
                         className="w-full h-full object-cover" 
                         aria-hidden="true"
                      />
                 </div>
 
-                {/* 2. CARD CONTENT (Relative z-10 to stay above the blur) */}
-                <div className="relative z-10 flex items-start gap-4 md:gap-5">
-                    
-                    {/* Logo Container */}
-                    <div className="w-14 h-14 md:w-16 md:h-16 shrink-0 rounded-2xl bg-white border border-slate-100 p-2 flex items-center justify-center shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all duration-300">
-                        <img 
-                            src={data.imageUrl} 
-                            alt={data.examName} 
-                            className="w-full h-full object-contain mix-blend-multiply" 
-                        />
-                    </div>
-                    
-                    <div className="flex-1 min-w-0 pt-1">
-                        <div className="flex items-center gap-2 mb-1.5 md:mb-2">
-                             <span className="flex h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
-                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Active Now</span>
-                        </div>
 
-                        <h3 className="font-bold text-slate-900 text-base md:text-lg leading-tight truncate pr-2 group-hover:text-indigo-600 transition-colors">
-                            {data.examName}
-                        </h3>
-                        <p className="text-slate-500 text-xs md:text-sm mt-1 font-medium">
-                            Check Score & Rank
-                        </p>
+                {/* --- CARD CONTENT (Relative z-10 to sit above glow) --- */}
+                <div className="relative z-10">
+                    <div className="flex items-start gap-3">
+                        {/* Logo Container (Compact Size) */}
+                        <div className="w-12 h-12 md:w-14 md:h-14 shrink-0 rounded-xl bg-white border border-slate-100 p-2 flex items-center justify-center shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all duration-300">
+                            <img 
+                                src={data.imageUrl} 
+                                alt={data.examName} 
+                                className="w-full h-full object-contain mix-blend-multiply" 
+                            />
+                        </div>
+                        
+                        <div className="flex-1 min-w-0 flex flex-col justify-center">
+                             {/* Active Status - Compact Capsule */}
+                             <div className="inline-flex self-start items-center gap-1.5 px-2 py-0.5 mb-1.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 text-[9px] font-bold tracking-wide">
+                                <span className="relative flex h-1.5 w-1.5">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                                </span>
+                                ACTIVE NOW
+                            </div>
+
+                            <h3 className="font-bold text-slate-900 text-base leading-tight truncate pr-1 group-hover:text-indigo-600 transition-colors">
+                                {data.examName}
+                            </h3>
+                            <p className="text-slate-500 text-xs font-medium mt-0.5">
+                                Check Score & Rank
+                            </p>
+                        </div>
                     </div>
                 </div>
 
-                {/* Bottom Action Area */}
-                <div className="relative z-10 mt-5 pt-4 border-t border-slate-50 flex items-center justify-between">
-                    <span className={`text-[10px] md:text-[11px] font-bold px-2 py-1 rounded-md bg-slate-100 text-slate-500 ${data.type === 'SSC' ? 'group-hover:bg-orange-100 group-hover:text-orange-700' : 'group-hover:bg-blue-100 group-hover:text-blue-700'} transition-colors`}>
+                {/* --- BOTTOM ACTION AREA --- */}
+                <div className="relative z-10 mt-4 pt-3 border-t border-slate-50 flex items-center justify-between">
+                    {/* Tag Capsule */}
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded bg-slate-50 text-slate-500 uppercase tracking-wider border border-slate-100 ${data.type === 'SSC' ? 'group-hover:bg-orange-50 group-hover:text-orange-700 group-hover:border-orange-100' : 'group-hover:bg-blue-50 group-hover:text-blue-700 group-hover:border-blue-100'} transition-all duration-300`}>
                         {data.type}
                     </span>
 
-                    {/* Analyze button visible by default, moves slightly on hover */}
-                    <div className="flex items-center gap-1 text-indigo-600 text-xs md:text-sm font-semibold group-hover:gap-2 transition-all duration-300">
-                        Analyze <ArrowRight className="w-3 h-3 md:w-4 md:h-4" />
+                    {/* Button - Compact Pill */}
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-bold group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
+                        Analyze
+                        <ArrowRight className="w-3 h-3 transition-transform duration-300 group-hover:translate-x-0.5" />
                     </div>
                 </div>
             </div>
         </Link>
-    )
+    );
 }
