@@ -64,14 +64,14 @@ export default async function ExamPage({ params }: Props) {
       break;
     case 'RAILWAY':  
     case 'RRB':      
-      CalculatorComponent = <CalculateRRB />;
+      CalculatorComponent = <CalculateRRB examData={exam} />;
       break;
     case 'BANK':
     case 'BANKING':
-      CalculatorComponent = <CalculateBank />;
+      CalculatorComponent = <CalculateBank examData={exam}/>;
       break;
     default:
-      CalculatorComponent = <CalculateOthers />;
+      CalculatorComponent = <CalculateOthers examData={exam} />;
       break;
   }
 

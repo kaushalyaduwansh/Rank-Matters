@@ -1,6 +1,6 @@
 import { db } from "@/db"; 
 import { sscResults, recentExams } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import * as cheerio from "cheerio";
 
@@ -23,7 +23,63 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Missing URL or Exam ID" }, { status: 400 });
     }
 
-    // 1. Fetch Exam Settings
+    // --- STEP 1: QUICK IDENTITY CHECK ---
+    // Fetch only the first page to get the Roll Number
+    const urls = getNormalizedUrls(url);
+    const mainResponse = await fetch(urls[0], { next: { revalidate: 3600 } });
+    
+    if (!mainResponse.ok) {
+        return NextResponse.json({ error: "Failed to fetch answer key" }, { status: 400 });
+    }
+    
+    const mainHtml = await mainResponse.text();
+    const $check = cheerio.load(mainHtml);
+
+    // Extract Roll No for DB Lookup
+    let rollNo = "";
+    // Robust extraction looking for "Roll No" label
+    $check('td').each((_, element) => {
+        if (rollNo) return;
+        const cellText = $check(element).text().replace(/\s+/g, ' ').trim();
+        if (cellText.includes("Roll No")) {
+            rollNo = $check(element).next().text().replace(':', '').trim();
+        }
+    });
+
+    if (!rollNo) {
+        return NextResponse.json({ error: "Could not find Roll Number in URL" }, { status: 422 });
+    }
+
+    // --- STEP 2: CHECK DB & UPDATE IF NEEDED ---
+    const existingResult = await db.select().from(sscResults)
+        .where(and(
+            eq(sscResults.rollNo, rollNo),
+            eq(sscResults.examId, examId)
+        ))
+        .limit(1);
+
+    if (existingResult.length > 0) {
+        const record = existingResult[0];
+        
+        // If Category has changed, update it
+        if (category && record.category !== category) {
+            await db.update(sscResults)
+                .set({ category: category })
+                .where(eq(sscResults.id, record.id));
+            
+            record.category = category; // Update local object for response
+        }
+
+        return NextResponse.json({ 
+            success: true, 
+            isCached: true, 
+            dbData: record 
+        });
+    }
+
+    // --- STEP 3: FULL CALCULATION (Only for New Students) ---
+    
+    // Fetch Exam Settings (Positive/Negative Marks)
     const examSettings = await db.query.recentExams.findFirst({
         where: eq(recentExams.id, examId),
     });
@@ -35,19 +91,22 @@ export async function POST(req: Request) {
     const POSITIVE_MARK = examSettings.rightMark ?? 2;
     const NEGATIVE_MARK = examSettings.wrongMark ?? 0.5;
 
-    const urls = getNormalizedUrls(url);
-    const pages = await Promise.all(
-      urls.map((u: string) => 
+    // Fetch remaining pages (we already have the first one)
+    const remainingPages = await Promise.all(
+      urls.slice(1).map((u: string) => 
         fetch(u, { next: { revalidate: 3600 } }).then((res) => (res.ok ? res.text() : ""))
       )
     );
+
+    // Combine all pages (Main + Remaining)
+    const allPages = [mainHtml, ...remainingPages];
 
     let totalCorrect = 0, totalWrong = 0, totalUnattempted = 0;
     const subjectScores: number[] = [];
     const detailedStats: any[] = [];
 
     // --- SCORING LOGIC ---
-    pages.forEach((html: string, index: number) => {
+    allPages.forEach((html: string, index: number) => {
       const subjectName = ["Reasoning", "GK", "Quant", "English"][index] || `Subject ${index+1}`;
 
       if (!html) {
@@ -85,64 +144,53 @@ export async function POST(req: Request) {
 
     const totalScore = (totalCorrect * POSITIVE_MARK) - (totalWrong * NEGATIVE_MARK);
 
-    // --- EXTRACTION LOGIC (FIXED) ---
-    const $base = cheerio.load(pages[0]);
-
-    // Robust extractor that flattens all whitespace (newlines, tabs) into single spaces
+    // --- EXTRACTION ---
+    // Reuse the $check cheerio instance from the first page since it has the meta info
     const extractText = (targetLabels: string[]) => {
       let foundValue = "";
-
-      // Loop through EVERY 'td' to find the label manually
-      $base('td').each((_, element) => {
-        if (foundValue) return; // Stop if already found
-
-        // Normalize: "Centre \n Name" -> "Centre Name"
-        const cellText = $base(element).text().replace(/\s+/g, ' ').trim(); 
-        
-        // Check if this cell contains any of our target labels (e.g., "Centre Name")
+      $check('td').each((_, element) => {
+        if (foundValue) return;
+        const cellText = $check(element).text().replace(/\s+/g, ' ').trim(); 
         if (targetLabels.some(label => cellText.includes(label))) {
-           // If match, grab the NEXT cell
-           foundValue = $base(element).next().text().replace(':', '').trim();
+           foundValue = $check(element).next().text().replace(':', '').trim();
         }
       });
-
       return foundValue;
     };
-
-    // Extract Centre Name (checking both common variations)
-    const centreName = extractText(["Centre Name", "Venue Name"]);
 
     const finalData = {
       examId: examId,
       category: category,
-      rollNo: extractText(["Roll No"]),
+      rollNo: rollNo, // We already extracted this
       candidateName: extractText(["Candidate Name"]),
       testDate: extractText(["Test Date"]),
       testTimeShift: extractText(["Test Time"]),
-      centreName: centreName,
+      centreName: extractText(["Centre Name", "Venue Name"]),
       answerKeyUrl: url.trim(),
       
       reasoningScore: subjectScores[0] || 0,
       gkScore: subjectScores[1] || 0,
       quantScore: subjectScores[2] || 0,
       englishScore: subjectScores[3] || 0,
+      
       totalScore: totalScore,
+      
+      // Store these for the standardized Result Page
+      // (Even if your DB schema doesn't have columns yet, storing them in sectionDetails JSON helps)
       sectionDetails: detailedStats 
     };
 
     // 5. Save to DB
-    if (finalData.rollNo) {
-      await db.insert(sscResults)
-        .values(finalData)
-        .onConflictDoUpdate({
-          target: [sscResults.rollNo, sscResults.examId],
-          set: finalData
-        });
-    } else {
-        return NextResponse.json({ error: "Could not parse Roll Number from URL" }, { status: 422 });
-    }
+    await db.insert(sscResults)
+      .values(finalData)
+      .onConflictDoUpdate({
+        target: [sscResults.rollNo, sscResults.examId],
+        set: finalData
+      });
 
     return NextResponse.json({ 
+      success: true,
+      isCached: false,
       score: totalScore, 
       correct: totalCorrect, 
       wrong: totalWrong, 
@@ -151,7 +199,7 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
-    console.error("Calculation Error:", error);
+    console.error("SSC Calculation Error:", error);
     return NextResponse.json({ error: error.message || "Server failed to calculate" }, { status: 500 });
   }
 }
